@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }} — {{ symbol }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Socket.IO client for Wallex WS streaming -->
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js" integrity="sha384-oQh7H7oCsmC4c0SXAj7P3qK0r9oQqVvaM2a3zP6gYH9vKQkZt0d3QbJ5q2I+SgW5" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body class="bg-gray-50 text-gray-900">
+    <header class="bg-white shadow-sm sticky top-0 z-10" role="banner">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-16">
+          <div class="flex items-center gap-3">
+            <svg class="h-8 w-8 text-indigo-600" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" role="img" aria-label="Logo">
+              <path d="M12 2l3.5 6h6.5l-5.25 4.25L18.5 20 12 16l-6.5 4 1.75-7.75L2 8h6.5L12 2z"/>
+            </svg>
+            <h1 class="text-lg sm:text-xl font-semibold">{{ app_name }} <span class="text-gray-400">v{{ version }}</span></h1>
+          </div>
+          <nav aria-label="Primary Navigation" class="hidden sm:flex items-center gap-6">
+            <a href="#charts" class="text-sm text-gray-600 hover:text-gray-900">Charts</a>
+            <a href="#trades" class="text-sm text-gray-600 hover:text-gray-900">Trades</a>
+            <a href="#orderbook" class="text-sm text-gray-600 hover:text-gray-900">Order Book</a>
+          </nav>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6" role="main">
+      <section class="mb-6" aria-labelledby="section-symbol">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <h2 id="section-symbol" class="text-xl font-semibold">Symbol: <span id="symbol" class="text-indigo-700 font-bold">{{ symbol }}</span></h2>
+            <p class="text-sm text-gray-600">Live view with periodic updates.</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <button id="refreshBtn" class="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md shadow hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" aria-label="Refresh now">Refresh</button>
+            <label class="text-sm text-gray-700">Interval <input id="intervalSec" type="number" min="2" value="5" class="ml-1 w-16 border rounded px-2 py-1" aria-label="Polling interval seconds" /> s</label>
+          </div>
+        </div>
+      </section>
+
+      <!-- Connection Status -->
+      <section id="connection" class="mb-6" aria-labelledby="section-connection">
+        <div class="bg-white rounded-lg shadow p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h2 id="section-connection" class="text-lg font-semibold">Connection Status</h2>
+            <div class="flex items-center gap-2">
+              <span id="wsStatusDot" class="inline-block h-2.5 w-2.5 rounded-full bg-gray-300" aria-hidden="true"></span>
+              <span id="wsStatusText" class="text-sm text-gray-700">Wallex WS: Disabled</span>
+            </div>
+          </div>
+          <div class="text-xs text-gray-500">
+            WS URL: <span id="wsUrl">—</span> • Symbol: <span id="wsSymbol">—</span> • Last depth event: <span id="wsLastEvent">—</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Bot Controls -->
+      <section id="bot-controls" class="mb-6" aria-labelledby="section-bot">
+        <div class="bg-white rounded-lg shadow p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h2 id="section-bot" class="text-lg font-semibold">Bot Controls</h2>
+            <div class="flex items-center gap-2">
+              <span id="botStatusDot" class="inline-block h-3 w-3 rounded-full bg-gray-300" aria-hidden="true"></span>
+              <span id="botStatusText" class="text-sm text-gray-600">Stopped</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-sm text-gray-700">Symbol</label>
+              <input id="cfgSymbol" type="text" class="mt-1 w-full border rounded px-3 py-2" value="{{ symbol }}" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-700">Quote Amount</label>
+              <input id="cfgQuote" type="number" min="1" step="0.01" class="mt-1 w-full border rounded px-3 py-2" value="10" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-700">Polling Interval (sec)</label>
+              <input id="cfgPoll" type="number" min="2" step="1" class="mt-1 w-full border rounded px-3 py-2" value="5" />
+            </div>
+          </div>
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+              <input id="cfgDryRun" type="checkbox" class="rounded" checked /> Dry run (no real orders)
+            </label>
+            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+              <input id="cfgUseLLM" type="checkbox" class="rounded" checked /> Use LLM strategy
+            </label>
+            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+              <input id="cfgEnablePolling" type="checkbox" class="rounded" checked /> Enable HTTP polling fallback
+            </label>
+          </div>
+          <div class="mt-4 flex flex-wrap gap-3">
+            <button id="startBotBtn" class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md shadow hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500">Start Bot</button>
+            <button id="stopBotBtn" class="px-4 py-2 bg-rose-600 text-white text-sm font-medium rounded-md shadow hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-rose-500">Stop Bot</button>
+            <span class="text-xs text-gray-500">Tip: If you encounter 429 Too Many Requests, increase the polling interval or rely on WebSocket updates.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6" aria-label="Summary stats">
+        <div class="bg-white rounded-lg shadow p-4">
+          <div class="text-sm text-gray-500">Last Price</div>
+          <div id="lastPrice" class="mt-1 text-2xl font-semibold">—</div>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4">
+          <div class="text-sm text-gray-500">Best Bid</div>
+          <div id="bestBid" class="mt-1 text-2xl font-semibold">—</div>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4">
+          <div class="text-sm text-gray-500">Best Ask</div>
+          <div id="bestAsk" class="mt-1 text-2xl font-semibold">—</div>
+        </div>
+      </section>
+
+      <section id="charts" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" aria-label="Charts">
+        <div class="bg-white rounded-lg shadow p-4">
+          <h3 class="text-lg font-semibold mb-2">Price (recent)</h3>
+          <canvas id="priceChart" height="200" aria-label="Recent trades price chart" role="img"></canvas>
+        </div>
+        <div id="orderbook" class="bg-white rounded-lg shadow p-4">
+          <h3 class="text-lg font-semibold mb-2">Order Book (Top Levels)</h3>
+          <canvas id="depthChart" height="200" aria-label="Order book depth chart" role="img"></canvas>
+        </div>
+      </section>
+
+      <!-- Account Dashboard -->
+      <section id="account-dashboard" class="bg-white rounded-lg shadow p-4 mb-8" aria-labelledby="section-account">
+        <div class="flex items-center justify-between mb-4">
+          <h3 id="section-account" class="text-lg font-semibold">Account Dashboard</h3>
+          <div class="flex items-center gap-3">
+            <span id="accountStatus" class="text-xs text-gray-500">Not loaded</span>
+            <button id="refreshAccountBtn" class="px-3 py-1.5 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700">Refresh</button>
+          </div>
+        </div>
+        
+        <!-- Portfolio Summary -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div class="border rounded p-3">
+            <div class="text-sm text-gray-600 mb-1">Total Portfolio Value</div>
+            <div id="portfolioValue" class="text-xl font-semibold text-emerald-600">—</div>
+            <div class="text-xs text-gray-500">USDT equivalent</div>
+          </div>
+          <div class="border rounded p-3">
+            <div class="text-sm text-gray-600 mb-1">Active Assets</div>
+            <div id="activeAssets" class="text-xl font-semibold">—</div>
+            <div class="text-xs text-gray-500">Non-zero balances</div>
+          </div>
+          <div class="border rounded p-3">
+            <div class="text-sm text-gray-600 mb-1">Last Updated</div>
+            <div id="accountUpdated" class="text-sm font-medium">—</div>
+            <div class="text-xs text-gray-500">Account data</div>
+          </div>
+        </div>
+
+        <!-- Account Sections -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <!-- Balances -->
+          <section class="border rounded p-3" aria-label="Account balances">
+            <div class="text-sm text-gray-600 mb-2 font-medium">Top Balances</div>
+            <div id="balancesList" class="space-y-2 max-h-48 overflow-y-auto">
+              <div class="text-xs text-gray-400">Loading...</div>
+            </div>
+          </section>
+          
+          <!-- Recent Transactions -->
+          <section class="border rounded p-3" aria-label="Recent transactions">
+            <div class="text-sm text-gray-600 mb-2 font-medium">Recent Transactions</div>
+            <div id="transactionsList" class="space-y-2 max-h-48 overflow-y-auto">
+              <div class="text-xs text-gray-400">Loading...</div>
+            </div>
+          </section>
+          
+          <!-- Account Trades -->
+          <section class="border rounded p-3" aria-label="Account trades">
+            <div class="text-sm text-gray-600 mb-2 font-medium">Recent Account Trades</div>
+            <div id="accountTradesList" class="space-y-2 max-h-48 overflow-y-auto">
+              <div class="text-xs text-gray-400">Loading...</div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="api-check" class="bg-white rounded-lg shadow p-4 mb-8" aria-labelledby="section-api-check">
+        <div class="flex items-center justify-between mb-3">
+          <h3 id="section-api-check" class="text-lg font-semibold">API Connectivity Check</h3>
+          <div class="flex items-center gap-3">
+            <span id="apiCheckStatus" class="text-xs text-gray-500">Not run yet</span>
+            <button id="runApiCheckBtn" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700">Run Check</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <section class="border rounded p-3" aria-label="Trades sample">
+            <div class="text-sm text-gray-600 mb-1">Trades sample (up to 5)</div>
+            <div class="bg-gray-50 rounded p-2 overflow-auto max-h-64">
+              <pre id="apiTradesSample" class="text-xs whitespace-pre-wrap">—</pre>
+            </div>
+          </section>
+          <section class="border rounded p-3" aria-label="Depth sample">
+            <div class="text-sm text-gray-600 mb-1">Depth sample (top 3 bids/asks)</div>
+            <div class="bg-gray-50 rounded p-2 overflow-auto max-h-64">
+              <pre id="apiDepthSample" class="text-xs whitespace-pre-wrap">—</pre>
+            </div>
+          </section>
+          <section class="border rounded p-3" aria-label="Trades sparkline">
+            <div class="text-sm text-gray-600 mb-1">Trades sparkline</div>
+            <canvas id="apiSparkline" height="80" aria-label="Trades sparkline" role="img"></canvas>
+          </section>
+        </div>
+      </section>
+
+      <section id="trades" class="bg-white rounded-lg shadow p-4" aria-label="Recent Trades">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-lg font-semibold">Recent Trades</h3>
+          <span id="updatedAt" class="text-xs text-gray-500">—</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+                <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
+              </tr>
+            </thead>
+            <tbody id="tradesBody" class="bg-white divide-y divide-gray-200 text-sm"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const fmt = new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 });
+      const el = (id) => document.getElementById(id);
+
+      let SYMBOL = "{{ symbol }}";
+      let POLL_SEC = 5;
+      // Wallex WS settings and state
+      let WALLEX_BASE_URL = "";
+      let ws = null;
+      let wsConnected = false;
+      const depthBook = { bids: new Map(), asks: new Map() }; // price(string) -> qty(number)
+      let lastDepthUpdateMs = 0;
+      const DEPTH_TOP_LEVELS = 10;
+
+      function updateConnectionMeta() {
+        const urlEl = el('wsUrl');
+        const symEl = el('wsSymbol');
+        const lastEl = el('wsLastEvent');
+        if (urlEl) urlEl.textContent = WALLEX_BASE_URL || '—';
+        if (symEl) symEl.textContent = SYMBOL || '—';
+        if (lastEl) lastEl.textContent = lastDepthUpdateMs ? new Date(lastDepthUpdateMs).toLocaleTimeString() : '—';
+      }
+      function updateWsStatus() {
+        const dot = el('wsStatusDot');
+        const text = el('wsStatusText');
+        const stale = (Date.now() - lastDepthUpdateMs) > 10000;
+        const hasWs = !!WALLEX_BASE_URL;
+        let status = 'Disabled';
+        let cls = 'bg-gray-300';
+        if (hasWs) {
+          if (wsConnected) {
+            status = stale ? 'Connected (stale)' : 'Connected';
+            cls = stale ? 'bg-amber-500' : 'bg-emerald-500';
+          } else {
+            status = 'Disconnected';
+            cls = 'bg-gray-300';
+          }
+        }
+        if (dot) dot.className = 'inline-block h-2.5 w-2.5 rounded-full ' + cls;
+        if (text) text.textContent = `Wallex WS: ${status}`;
+        updateConnectionMeta();
+      }
+
+      async function loadConfig() {
+        try {
+          const r = await fetch('/api/config');
+          if (!r.ok) return;
+          const cfg = await r.json();
+          if (cfg.symbol) { SYMBOL = cfg.symbol; el('symbol').textContent = SYMBOL; el('cfgSymbol').value = SYMBOL; }
+          if (cfg.poll_interval_sec) { POLL_SEC = Math.max(2, Number(cfg.poll_interval_sec) || 5); el('intervalSec').value = POLL_SEC; el('cfgPoll').value = POLL_SEC; }
+          if (typeof cfg.trade_amount_quote === 'number') { el('cfgQuote').value = cfg.trade_amount_quote; }
+          if (typeof cfg.dry_run === 'boolean') { el('cfgDryRun').checked = cfg.dry_run; }
+          if (typeof cfg.use_llm === 'boolean') { el('cfgUseLLM').checked = cfg.use_llm; }
+          if (typeof cfg.enable_polling === 'boolean') { el('cfgEnablePolling').checked = cfg.enable_polling; }
+          if (cfg.base_url) { WALLEX_BASE_URL = cfg.base_url; }
+          updateWsStatus();
+        } catch {}
+      }
+
+      async function loadBotStatus() {
+        try {
+          const r = await fetch('/api/bot/status');
+          if (!r.ok) return;
+          const s = await r.json();
+          const running = !!s.running;
+          el('botStatusDot').className = 'inline-block h-3 w-3 rounded-full ' + (running ? 'bg-emerald-500' : 'bg-gray-300');
+          el('botStatusText').textContent = running ? 'Running' : 'Stopped';
+        } catch {}
+      }
+
+      function normalizeLevels(input) {
+        // Accepts {bids|bid|asks|ask|levels|data: [...]}, a single dict level, or array like [[price, qty], ...]
+        const out = [];
+        const tryPush = (p, q) => {
+          const price = Number(p);
+          const qty = Number(q);
+          if (Number.isFinite(price) && Number.isFinite(qty)) out.push({ price, qty });
+        };
+        const tryParseEntry = (e) => {
+          if (!e) return;
+          if (Array.isArray(e) && e.length >= 2) { tryPush(e[0], e[1]); return; }
+          if (typeof e === 'object') { tryPush(e.price ?? e.p, e.quantity ?? e.q ?? e.qty); }
+        };
+        let arr = null;
+        if (Array.isArray(input)) arr = input;
+        if (!arr && input && typeof input === 'object') {
+          arr = input.bids || input.bid || input.asks || input.ask || input.levels || input.data;
+          if (!arr && (input.price || input.p)) arr = [input];
+        }
+        if (!arr) return out;
+        for (const e of arr) tryParseEntry(e);
+        return out;
+      }
+
+      function applyDepthUpdate(side, levels) {
+        const book = side === 'bids' ? depthBook.bids : depthBook.asks;
+        for (const lvl of levels) {
+          const key = String(lvl.price);
+          if (!Number.isFinite(lvl.qty) || lvl.qty <= 0) {
+            book.delete(key);
+          } else {
+            book.set(key, lvl.qty);
+          }
+        }
+        lastDepthUpdateMs = Date.now();
+        // Render after each update
+        const top = buildTopLevels();
+        updateDepthUI(top);
+        updateWsStatus();
+      }
+
+      function buildTopLevels() {
+        // Convert maps into sorted arrays and take top N
+        const bidArr = Array.from(depthBook.bids.entries()).map(([p, q]) => ({ price: Number(p), qty: q }))
+          .sort((a, b) => b.price - a.price).slice(0, DEPTH_TOP_LEVELS);
+        const askArr = Array.from(depthBook.asks.entries()).map(([p, q]) => ({ price: Number(p), qty: q }))
+          .sort((a, b) => a.price - b.price).slice(0, DEPTH_TOP_LEVELS);
+        return { bids: bidArr, asks: askArr };
+      }
+
+      function connectWallexWS(reconnect = false) {
+        try {
+          if (!WALLEX_BASE_URL) { wsConnected = false; updateWsStatus(); return; }
+          if (ws) {
+            try { ws.disconnect(); } catch {}
+            ws = null;
+          }
+          wsConnected = false;
+          updateWsStatus();
+          ws = io(WALLEX_BASE_URL, { transports: ['websocket'] });
+          ws.on('connect', () => {
+            wsConnected = true;
+            updateWsStatus();
+            // Subscribe to depth channels for current symbol
+            ws.emit('subscribe', { channel: `${SYMBOL}@buyDepth` });
+            ws.emit('subscribe', { channel: `${SYMBOL}@sellDepth` });
+          });
+          ws.on('disconnect', () => { wsConnected = false; updateWsStatus(); });
+          ws.io.on('error', () => { wsConnected = false; updateWsStatus(); });
+          ws.on('connect_error', () => { wsConnected = false; updateWsStatus(); });
+          ws.on('Broadcaster', (channel, data) => {
+            try {
+              if (typeof channel === 'string') {
+                if (channel.endsWith('@buyDepth')) {
+                  const levels = normalizeLevels(data);
+                  applyDepthUpdate('bids', levels);
+                } else if (channel.endsWith('@sellDepth')) {
+                  const levels = normalizeLevels(data);
+                  applyDepthUpdate('asks', levels);
+                }
+              }
+            } catch {}
+          });
+        } catch {}
+      }
+
+      async function startBot() {
+        const payload = {
+          symbol: String(el('cfgSymbol').value || SYMBOL).toUpperCase(),
+          trade_amount_quote: Number(el('cfgQuote').value || 10),
+          polling_interval_sec: Math.max(2, Number(el('cfgPoll').value || POLL_SEC)),
+          dry_run: !!el('cfgDryRun').checked,
+          use_llm: !!el('cfgUseLLM').checked,
+          enable_polling: !!el('cfgEnablePolling').checked,
+        };
+        const r = await fetch('/api/bot/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (r.ok) {
+          await loadBotStatus();
+          // Sync top-of-page SYMBOL and polling
+          SYMBOL = payload.symbol;
+          el('symbol').textContent = SYMBOL;
+          POLL_SEC = payload.polling_interval_sec;
+          el('intervalSec').value = POLL_SEC;
+          // Reconnect WS to new symbol
+          connectWallexWS(true);
+          schedule();
+        }
+      }
+
+      async function stopBot() {
+        const r = await fetch('/api/bot/stop', { method: 'POST' });
+        if (r.ok) {
+          await loadBotStatus();
+        }
+      }
+
+      const priceCtx = document.getElementById('priceChart').getContext('2d');
+      const priceChart = new Chart(priceCtx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: 'Price', data: [], borderColor: '#4f46e5', backgroundColor: 'rgba(79,70,229,0.15)', tension: 0.25, pointRadius: 0 }] },
+        options: { responsive: true, scales: { x: { display: false }, y: { beginAtZero: false } }, plugins: { legend: { display: false } } }
+      });
+
+      const depthCtx = document.getElementById('depthChart').getContext('2d');
+      const depthChart = new Chart(depthCtx, {
+        type: 'bar',
+        data: { labels: [], datasets: [
+          { label: 'Bids', data: [], backgroundColor: 'rgba(16,185,129,0.6)' },
+          { label: 'Asks', data: [], backgroundColor: 'rgba(239,68,68,0.6)' },
+        ]},
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true }, y: { stacked: false, beginAtZero: true } } }
+      });
+
+      function updateTradesUI(items) {
+        const body = el('tradesBody');
+        body.innerHTML = '';
+        const latest = items[items.length - 1];
+        if (latest) {
+          el('lastPrice').textContent = fmt.format(latest.price);
+        }
+        for (let i = items.length - 1; i >= 0; i--) {
+          const t = items[i];
+          const tr = document.createElement('tr');
+          const dt = t.ts ? new Date(t.ts) : null;
+          tr.innerHTML = `
+            <td class="px-3 py-2 whitespace-nowrap">${dt ? dt.toLocaleTimeString() : '—'}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${fmt.format(t.price)}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${fmt.format(t.qty)}</td>
+          `;
+          body.appendChild(tr);
+        }
+
+        // Update price chart
+        const labels = items.map((_, i) => i + 1);
+        const data = items.map((t) => t.price);
+        priceChart.data.labels = labels;
+        priceChart.data.datasets[0].data = data;
+        priceChart.update('none');
+
+        el('updatedAt').textContent = new Date().toLocaleString();
+      }
+
+      function updateDepthUI(depth) {
+        const bids = depth.bids || [];
+        const asks = depth.asks || [];
+        const bestBid = bids[0];
+        const bestAsk = asks[0];
+        el('bestBid').textContent = bestBid ? fmt.format(bestBid.price) : '—';
+        el('bestAsk').textContent = bestAsk ? fmt.format(bestAsk.price) : '—';
+
+        const labels = [];
+        const bidData = [];
+        const askData = [];
+        const levels = Math.max(bids.length, asks.length);
+        for (let i = 0; i < levels; i++) {
+          labels.push(String(i + 1));
+          bidData.push(bids[i] ? bids[i].qty : 0);
+          askData.push(asks[i] ? asks[i].qty : 0);
+        }
+        depthChart.data.labels = labels;
+        depthChart.data.datasets[0].data = bidData;
+        depthChart.data.datasets[1].data = askData;
+        depthChart.update('none');
+        // mark timestamp of last UI update
+        lastDepthUpdateMs = Date.now();
+      }
+
+      async function fetchTrades() {
+        const r = await fetch(`/api/trades?symbol=${encodeURIComponent(SYMBOL)}`);
+        if (!r.ok) return;
+        const j = await r.json();
+        updateTradesUI(j.trades || []);
+      }
+
+      async function fetchDepth() {
+        const r = await fetch(`/api/depth?symbol=${encodeURIComponent(SYMBOL)}&limit=10`);
+        if (!r.ok) return;
+        const j = await r.json();
+        updateDepthUI(j);
+      }
+
+      // Account Dashboard Functions
+      async function loadAccountData() {
+        try {
+          el('accountStatus').textContent = 'Loading...';
+          const [balRes, txRes, tradesRes, portfolioRes] = await Promise.allSettled([
+            fetch('/api/account/balances'),
+            fetch('/api/account/transactions?limit=10'),
+            fetch('/api/account/trades?limit=10'),
+            fetch('/api/account/portfolio')
+          ]);
+          
+          // Update portfolio summary
+          if (portfolioRes.status === 'fulfilled' && portfolioRes.value.ok) {
+            const portfolio = await portfolioRes.value.json();
+            if (!portfolio.error) {
+              el('portfolioValue').textContent = fmt.format(portfolio.total_value_usdt || 0) + ' USDT';
+              el('activeAssets').textContent = String(portfolio.items?.length || 0);
+              el('accountUpdated').textContent = portfolio.updated_ts ? new Date(portfolio.updated_ts * 1000).toLocaleTimeString() : '—';
+            }
+          }
+          
+          // Update balances
+          if (balRes.status === 'fulfilled' && balRes.value.ok) {
+            const balData = await balRes.value.json();
+            if (!balData.error && balData.balances) {
+              const balList = el('balancesList');
+              balList.innerHTML = '';
+              balData.balances.slice(0, 8).forEach(b => {
+                const div = document.createElement('div');
+                div.className = 'flex justify-between text-xs';
+                div.innerHTML = `<span class="font-medium">${b.asset}</span><span>${fmt.format(b.total)}</span>`;
+                balList.appendChild(div);
+              });
+            }
+          }
+          
+          // Update transactions
+          if (txRes.status === 'fulfilled' && txRes.value.ok) {
+            const txData = await txRes.value.json();
+            if (!txData.error && txData.transactions) {
+              const txList = el('transactionsList');
+              txList.innerHTML = '';
+              txData.transactions.slice(0, 8).forEach(tx => {
+                const div = document.createElement('div');
+                div.className = 'text-xs border-b pb-1';
+                const time = tx.ts ? new Date(tx.ts * 1000).toLocaleDateString() : '—';
+                div.innerHTML = `<div class="flex justify-between"><span class="capitalize">${tx.type || '—'}</span><span class="text-gray-500">${time}</span></div><div class="text-gray-600">${tx.asset || '—'}: ${fmt.format(tx.amount || 0)}</div>`;
+                txList.appendChild(div);
+              });
+            }
+          }
+          
+          // Update account trades
+          if (tradesRes.status === 'fulfilled' && tradesRes.value.ok) {
+            const tradesData = await tradesRes.value.json();
+            if (!tradesData.error && tradesData.trades) {
+              const tradesList = el('accountTradesList');
+              tradesList.innerHTML = '';
+              tradesData.trades.slice(0, 8).forEach(t => {
+                const div = document.createElement('div');
+                div.className = 'text-xs border-b pb-1';
+                const time = t.ts ? new Date(t.ts * 1000).toLocaleDateString() : '—';
+                const sideColor = t.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600';
+                div.innerHTML = `<div class="flex justify-between"><span class="${sideColor} font-medium">${t.side || '—'}</span><span class="text-gray-500">${time}</span></div><div class="text-gray-600">${t.symbol || '—'}: ${fmt.format(t.price || 0)} × ${fmt.format(t.qty || 0)}</div>`;
+                tradesList.appendChild(div);
+              });
+            }
+          }
+          
+          el('accountStatus').textContent = `Updated at ${new Date().toLocaleTimeString()}`;
+        } catch (e) {
+          el('accountStatus').textContent = 'Failed to load';
+          console.error('Account data load error:', e);
+        }
+      }
+
+      // API Connectivity Check
+      let apiSpark = null;
+      function pretty(obj) {
+        try { return JSON.stringify(obj, null, 2); } catch { return String(obj); }
+      }
+      function pickTradesSample(data) {
+        if (!data) return [];
+        const arr = Array.isArray(data.trades) ? data.trades : (Array.isArray(data) ? data : []);
+        return arr.slice(-5);
+      }
+      function pickDepthSample(data) {
+        const bids = Array.isArray(data?.bids) ? data.bids.slice(0, 3) : [];
+        const asks = Array.isArray(data?.asks) ? data.asks.slice(0, 3) : [];
+        return { bids, asks };
+      }
+      async function runApiCheck() {
+        try {
+          el('apiCheckStatus').textContent = 'Running…';
+          const [tradesRes, depthRes] = await Promise.allSettled([
+            fetch(`/api/trades?symbol=${encodeURIComponent(SYMBOL)}`),
+            fetch(`/api/depth?symbol=${encodeURIComponent(SYMBOL)}&limit=10`),
+          ]);
+          let tradesJson = null; let depthJson = null;
+          if (tradesRes.status === 'fulfilled' && tradesRes.value.ok) tradesJson = await tradesRes.value.json();
+          if (depthRes.status === 'fulfilled' && depthRes.value.ok) depthJson = await depthRes.value.json();
+
+          const tradesSample = pickTradesSample(tradesJson);
+          const depthSample = pickDepthSample(depthJson || {});
+
+          el('apiTradesSample').textContent = pretty(tradesSample);
+          el('apiDepthSample').textContent = pretty(depthSample);
+
+          // Draw sparkline of trade prices
+          const ctx = document.getElementById('apiSparkline').getContext('2d');
+          const prices = tradesSample.map(t => t.price);
+          if (!apiSpark) {
+            apiSpark = new Chart(ctx, {
+              type: 'line',
+              data: { labels: prices.map((_, i) => i + 1), datasets: [{ data: prices, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.15)', tension: 0.3, pointRadius: 0 }] },
+              options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }
+            });
+          } else {
+            apiSpark.data.labels = prices.map((_, i) => i + 1);
+            apiSpark.data.datasets[0].data = prices;
+            apiSpark.update('none');
+          }
+
+          const ok = Array.isArray(tradesSample) && tradesSample.length >= 0 && depthSample;
+          el('apiCheckStatus').textContent = `Completed at ${new Date().toLocaleTimeString()}`;
+        } catch (e) {
+          el('apiCheckStatus').textContent = 'Failed';
+        }
+      }
+      let timer = null;
+      function schedule() {
+        const sec = Math.max(2, Number(el('intervalSec').value) || POLL_SEC);
+        clearInterval(timer);
+        timer = setInterval(async () => {
+          const tasks = [fetchTrades()];
+          // Only fetch HTTP depth if WS is not connected or stale for >10s
+          const stale = (Date.now() - lastDepthUpdateMs) > 10000;
+          if (!wsConnected || stale) tasks.push(fetchDepth());
+          await Promise.allSettled(tasks);
+        }, sec * 1000);
+      }
+
+      el('refreshBtn').addEventListener('click', async () => {
+        const tasks = [fetchTrades()];
+        if (!wsConnected || (Date.now() - lastDepthUpdateMs) > 5000) tasks.push(fetchDepth());
+        await Promise.allSettled(tasks);
+      });
+      el('intervalSec').addEventListener('change', schedule);
+      el('startBotBtn').addEventListener('click', startBot);
+      el('stopBotBtn').addEventListener('click', stopBot);
+      el('runApiCheckBtn').addEventListener('click', runApiCheck);
+      el('refreshAccountBtn').addEventListener('click', loadAccountData);
+
+      (async function init() {
+        await loadConfig();
+        await loadBotStatus();
+        updateWsStatus();
+        connectWallexWS();
+        schedule();
+        await Promise.allSettled([fetchTrades(), fetchDepth()]);
+        runApiCheck();
+        loadAccountData();
+      })();
+    </script>
+  </body>
+</html>
