@@ -33,3 +33,4 @@ logs/
 
 # Node (just in case)
 node_modules/
+raw_bal.json

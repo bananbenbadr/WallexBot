@@ -119,3 +119,13 @@ class WallexAPIClient:
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to get account trades: {e}")
             raise
+
+    def get_account_profile(self) -> Dict:
+        """Get authenticated user's profile information."""
+        try:
+            response = self.session.get(f"{self.base_url}/v1/account/profile")
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get account profile: {e}")
+            raise

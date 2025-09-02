@@ -7,9 +7,20 @@ This project aims to follow Keep a Changelog and Semantic Versioning (MAJOR.MINO
 ## [Unreleased]
 - Potential: add metrics/health endpoints, improve WebSocket subscription robustness for different providers, expand strategy hooks, and add unit tests for polling parser.
 
+## [0.1.3] - 2025-09-02
+### Fixed
+- Hardened balance normalization in src/web/server.py to support Wallex response envelopes and nested shapes: handles `result.balances`, `data.balances`, flat `balances` (list or dict), and symbol-to-object maps; recognizes `asset`/`currency`/`coin` keys plus `value`/`free` and `locked`, and computes `total` reliably.
+- Ensured portfolio and summary endpoints compute correctly from normalized balances and gracefully handle missing market quotes; results are cached for 30 seconds for stability.
+
+### Added
+- Diagnostic logging when normalization yields an empty result, including a brief hint of the raw shape to speed up troubleshooting of API mismatch/auth issues.
+
+### Changed
+- Improved resilience of `/api/account/balances` and `/api/account/portfolio` to Wallex API shape variations without breaking the UI or clients.
+
 ## [0.1.2] - 2025-08-23
 ### Fixed
-- Resolved Pyright type error in WebSocket client by replacing decorator-based registration with an explicit handler for the `"Broadcaster"` channel.
+- Resolved Pyright type error in WebSocket client by replacing decorator-based registration with an explicit handler for the "\"Broadcaster\"" channel.
 - Cleaned up duplicated/invalid code paths in `src/wallex/ws_client.py` and ensured explicit callback registration via `self.sio.on("Broadcaster", _on_message)`.
 
 ### Changed

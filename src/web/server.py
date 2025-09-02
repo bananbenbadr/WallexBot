@@ -385,6 +385,86 @@ def api_account_portfolio():
         return jsonify({"error": str(e)}), 502
 
 
+# New: Account summary for header (name + balances)
+@app.route("/api/account/summary", methods=["GET"])
+def api_account_summary():
+    if not settings.wallex_api_key:
+        return jsonify({"error": "Wallex API key not configured"}), 503
+    try:
+        now = time.time()
+        # Try fetch profile name from Wallex
+        name = ""
+        try:
+            prof_raw = client.get_account_profile()
+            # Attempt to extract first/last name from various shapes
+            if isinstance(prof_raw, dict):
+                # Common shapes: { data: { first_name, last_name } } or flat
+                data = prof_raw.get("data") if isinstance(prof_raw.get("data"), dict) else prof_raw
+                first_name = (data.get("first_name") if isinstance(data, dict) else None) or data.get("firstName") if isinstance(data, dict) else None
+                last_name = (data.get("last_name") if isinstance(data, dict) else None) or data.get("lastName") if isinstance(data, dict) else None
+                if first_name or last_name:
+                    name = f"{(first_name or '').strip()} {(last_name or '').strip()}".strip()
+                else:
+                    # Some APIs may provide 'name' directly
+                    nm = data.get("name") if isinstance(data, dict) else None
+                    if isinstance(nm, str):
+                        name = nm.strip()
+        except Exception:
+            # Fallback to configured display name
+            name = settings.user_display_name or ""
+        if not name:
+            name = settings.user_display_name or ""
+
+        # Balances (use cache if fresh)
+        if _account_bal_cache["data"] and (now - _account_bal_cache["ts"]) < 30:
+            balances = _account_bal_cache["data"]
+        else:
+            raw = client.get_account_balances()
+            balances = normalize_balances(raw)
+            _account_bal_cache.update({"ts": now, "data": balances})
+        usdt_balance = 0.0
+        for b in balances or []:
+            if str(b.get("asset", "")).upper() == "USDT":
+                usdt_balance = _to_float(b.get("total", 0))
+                break
+        # Total portfolio value in USDT (reuse cache or compute minimal)
+        if _portfolio_cache["data"] and (now - _portfolio_cache["ts"]) < 30:
+            total_usdt = _portfolio_cache["data"].get("total_value_usdt", 0.0)
+            updated_ts = _portfolio_cache["data"].get("updated_ts", int(now))
+        else:
+            # Compute quickly similar to portfolio endpoint but without item details
+            raw_bal = client.get_account_balances()
+            balances2 = normalize_balances(raw_bal)
+            assets = [b for b in balances2 if b.get("total", 0) > 0]
+            top_assets = assets[:5]
+            total_usdt = 0.0
+            for b in top_assets:
+                asset = b["asset"]
+                total = _to_float(b.get("total", 0))
+                if asset.upper() == "USDT":
+                    price = 1.0
+                else:
+                    sym = f"{asset.upper()}USDT"
+                    try:
+                        raw_trades = client.get_trades(sym)
+                        trades = normalize_trades(raw_trades)
+                        last = trades[-1]["price"] if trades else 0.0
+                        price = float(last) if last else 0.0
+                    except Exception:
+                        price = 0.0
+                value = total * price if price else 0.0
+                total_usdt += value
+            updated_ts = int(now)
+            _portfolio_cache.update({"ts": now, "data": {"items": [], "total_value_usdt": total_usdt, "updated_ts": updated_ts}})
+        return jsonify({
+            "name": name,
+            "usdt_balance": usdt_balance,
+            "total_value_usdt": total_usdt,
+            "updated_ts": updated_ts,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
 # -----------------
 # Bot Control (JSON)
 # -----------------

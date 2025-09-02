@@ -19,6 +19,8 @@ class Settings:
     enable_polling: bool = True
     polling_interval_sec: int = 5
     ws_idle_timeout_sec: int = 15
+    # Optional display name for UI
+    user_display_name: str = ""
 
 
 def load_settings() -> Settings:
@@ -37,4 +39,5 @@ def load_settings() -> Settings:
         enable_polling=os.getenv("ENABLE_POLLING", "true").lower() == "true",
         polling_interval_sec=int(os.getenv("POLLING_INTERVAL_SEC", "5")),
         ws_idle_timeout_sec=int(os.getenv("WS_IDLE_TIMEOUT_SEC", "15")),
+        user_display_name=os.getenv("WALLEX_USER_NAME", ""),
     )
