@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file.
 
+> **Official Repository**: This project is maintained by [bananbenbadr](https://github.com/bananbenbadr)
+
 This project aims to follow Keep a Changelog and Semantic Versioning (MAJOR.MINOR.PATCH) conventions.
 
 ## [Unreleased]

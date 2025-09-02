@@ -1,5 +1,7 @@
 # Wallex Trading Bot (Python)
 
+> **Official Repository**: This project is maintained by [bananbenbadr](https://github.com/bananbenbadr)
+
 A modular trading bot for the Wallex exchange featuring:
 - HTTP and WebSocket market data ingestion
 - Optional LLM-based signal generation (Google Gemini)
